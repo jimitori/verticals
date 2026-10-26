@@ -3,12 +3,13 @@
    goal. The row arms the drag (lib/drag.ts through the store), the card and its list lift as one piece (lib/cardLift.ts)
    and carry the open goal's family light (lib/cardFamily.ts). Two roots, so nothing a parent passes falls through. */
 import type { KeyboardEvent as ReactKeyboardEvent, MemoExoticComponent, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
-import { computed, ref, watch } from '../reactivity'
+import { computed, nextTick, ref, watch } from '../reactivity'
 import { pressToDrag } from './CardDnd'
 import { KCard } from '../kit'
 import { useCompletionCelebration } from '../lib/completionCelebration'
+import { keyboardHelpOpen } from '../lib/keyboard'
 import { caretAt, useInlineTitleEdit } from '../lib/inlineTitleEdit'
-import { anyMenuOpen, menuGoalId, pointerOver, useCardLift, whenMenuCloses } from '../lib/cardLift'
+import { anyMenuOpen, menuGoalId, pointerOver, useCardLift, whenHandMoves, whenMenuCloses } from '../lib/cardLift'
 import { useGroupWash } from '../lib/goalWash'
 import { useCardDrag } from '../lib/cardDrag'
 import { withSlot, type SlotItem } from '../lib/reorderSlot'
@@ -187,7 +188,7 @@ export const GoalCard: MemoExoticComponent<(props: Props) => ReactNode> = tracke
       commit: (next) => void store.updateGoal(props.id, { title: next }),
       input: inlineTitleInput,
     })
-    listen(inlineTitleInput, 'blur', () => title.commit())
+    listen(inlineTitleInput, 'blur', () => { if (!keyboardHelpOpen.value) title.commit() })
 
     function onTitlePress(event: MouseEvent) {
       if (isInlineDetailHost.value) title.start(caretAt(event))
@@ -243,7 +244,8 @@ export const GoalCard: MemoExoticComponent<(props: Props) => ReactNode> = tracke
     }
     function onCardEnter(): void {
       if (inWindow.value) return
-      highlightFamily()
+      // After the keys took over, a card that slid under the still pointer lights only once the hand moves.
+      whenHandMoves(() => { if (rootElement()?.matches(':hover')) highlightFamily() })
       lift.enter()
       void store.ensureDetail(props.id) // a click here moves the board from its detail (lib/familyMotion.ts): fetch it ahead
     }
@@ -274,13 +276,24 @@ export const GoalCard: MemoExoticComponent<(props: Props) => ReactNode> = tracke
       tools.value?.openMenu()
     }
     function onRowKeydown(event: ReactKeyboardEvent) {
+      if (event.defaultPrevented || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229
+        || event.repeat || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return
+      if ((event.target as HTMLElement).closest('input, textarea, [contenteditable="true"]')) return
       if (!['/', 'Slash', 'Enter', ' '].includes(event.key)) return
       // Slash is the card-level options shortcut even when focus currently sits on a descendant.
       // Enter/Space remain owned by that descendant so native control activation is unchanged.
       if (!['/', 'Slash'].includes(event.key) && fromControl(event.nativeEvent)) return
       event.preventDefault()
       if (event.key === 'Enter') title.start()
-      else if (event.key === ' ') onOpenDetail()
+      // Space on the open goal closes it the way Esc does; opening it again only redrew it.
+      else if (event.key === ' ') {
+        if (isInlineDetailHost.value) store.goUp()
+        else {
+          // As a click does: the card lifts and holds its lift, so it stays lit through the opening's move, over the veil.
+          lift.keyHold()
+          void nextTick(onOpenDetail)
+        }
+      }
       else tools.value?.openMenu()
     }
     function onSearchOpen(event: ReactMouseEvent): void {

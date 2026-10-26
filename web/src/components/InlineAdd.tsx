@@ -1,6 +1,7 @@
 /* The product's add row: at rest the board's disabled-checkbox row; activated, the row
    turns in place into the one-input create path. One input, no required selects, and a committed title goes up as `add`
    (the goal's real id comes back from the server, never from here). */
+import { keyboardHelpOpen } from '../lib/keyboard'
 import type { KeyboardEvent } from 'react'
 import { nextTick, ref } from '../reactivity'
 import { fallthrough, model } from '../bind'
@@ -36,6 +37,7 @@ export const InlineAdd = tracked(function InlineAdd(raw: Props & Record<string, 
       cancelEditor()
     }
     function onBlur() {
+      if (keyboardHelpOpen.value) return
       if (!draft.value.trim()) cancelEditor()
     }
     listen(editor, 'blur', onBlur)
@@ -50,14 +52,28 @@ export const InlineAdd = tracked(function InlineAdd(raw: Props & Record<string, 
     event.preventDefault()
     if (!s.editing.value) s.openEditor()
   }
+  /* The keys come back to the Add row the field closes into, so Enter, N or an arrow carries on from there. */
+  function backToRow(event: KeyboardEvent<HTMLInputElement>) {
+    const input = event.currentTarget
+    const row = input.closest<HTMLElement>('[data-role="column-add"]')
+    void nextTick(() => {
+      const now = document.activeElement
+      if (!row?.isConnected || (now && now !== document.body && now !== input)) return
+      row.tabIndex = 0 // the render that gives it back may come after this tick
+      row.focus({ preventScroll: true })
+    })
+  }
   function onEditorKey(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return
     if (event.key === ' ') event.stopPropagation()
     else if (event.key === 'Enter') {
       event.preventDefault()
+      if (s.draft.value.trim()) backToRow(event)
       s.commit()
     } else if (event.key === 'Escape') {
       event.stopPropagation()
       event.preventDefault()
+      backToRow(event)
       s.cancelEditor()
     }
   }

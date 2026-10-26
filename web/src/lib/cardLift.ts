@@ -76,17 +76,23 @@ function releaseHold(): void {
    not what the hand pointed at. The card the hand clicked keeps its lift through the move (KK, 4 Oct 2026: "keeping
    it scaled"): the move reads it lifted and lands it lifted at its new size, its scale measured again for that size
    (`refreshLifts`) before the move reads where it lands, so the lift changes inside the one movement. */
-const releases = new Set<() => void>()
+const releases = new Set<(all: boolean) => void>()
 const refreshers = new Set<() => void>()
 let quiet: { x: number; y: number } | null = null
-export function releaseLifts(at: { x: number; y: number } | null): void {
+/** `all`: the card a click holds lifted drops its lift too (the keys took over). */
+export function releaseLifts(at: { x: number; y: number } | null, all = false): void {
   quiet = at ?? (Number.isNaN(pointer.x) ? null : { ...pointer })
-  releases.forEach((release) => release())
+  releases.forEach((release) => release(all))
 }
 /** Measures every lifted card again for the size it has now and writes its lift onto it at once, not at the card's next
  *  drawing: the move reads where things land right after the change. */
 export function refreshLifts(): void {
   refreshers.forEach((refresh) => refresh())
+}
+/** Runs `fn` now, or once the hand moves when the board is waiting for it to. */
+export function whenHandMoves(fn: () => void): void {
+  if (quiet) waiting.add(fn)
+  else fn()
 }
 function wake(event: PointerEvent): void {
   if (!quiet || Math.hypot(event.clientX - quiet.x, event.clientY - quiet.y) < HOLD_MOVE_PX) return
@@ -97,7 +103,7 @@ export const LIFTED_CLASS = 'goal-card--lifted'
 export const LIFTED_LIST_CLASS = 'goal-card__children--lifted'
 const SETTLING_CLASSES = ['goal-card--settling', 'goal-card__children--settling']
 /** On a card lifted by a click, and its list: its lift rides the move (goalCard.css), where any other lift waits. */
-const HELD_ATTR = 'data-lift-held'
+export const HELD_ATTR = 'data-lift-held'
 
 /* A goal's "…" menu hangs from its dots (KK, 27 Sep 2026: "it jumps here and there if i click on menu icon"). Moving
    into the menu is leaving the card, so the card used to drop its lift under the open menu, the dots moved, and the
@@ -229,6 +235,29 @@ export function useCardLift(options: {
     window.addEventListener('pointermove', moveOn, { passive: true })
   }
 
+  /** The keys opened this card: it lifts and holds its lift as a clicked card does, through the opening's move, until the
+   *  hand moves or the keys go to another goal. */
+  function keyHold(): void {
+    if (!options.enabled() || !measure()) return
+    clearTimers()
+    settle(false)
+    lifted.value = true
+    held = { ...pointer } // unknown (NaN) when the pointer never moved: its first move lets go
+    holder = me
+    mark(true)
+    window.addEventListener('pointermove', moveOn, { passive: true })
+    const card = options.card()
+    card?.addEventListener('focusout', function away(event: FocusEvent) {
+      if (card.contains(event.relatedTarget as Node | null)) return
+      card.removeEventListener('focusout', away)
+      if (holder !== me || !held) return
+      held = null
+      window.removeEventListener('pointermove', moveOn)
+      releaseHold()
+      if (!pointerOver(options.card(), options.list.value)) leave()
+    })
+  }
+
   function moveOn(event: PointerEvent): void {
     if (!held || Math.hypot(event.clientX - held.x, event.clientY - held.y) < HOLD_MOVE_PX) return
     held = null
@@ -269,7 +298,7 @@ export function useCardLift(options: {
     clickHost?.addEventListener('click', hold, true)
   }, { flush: 'post' })
 
-  const release = (): void => { if (holder !== me) drop() } // the clicked card keeps its lift through the move
+  const release = (all: boolean): void => { if (all || holder !== me) drop() } // the clicked card keeps its lift through the move
   releases.add(release)
   const refresh = (): void => {
     if (!lifted.value || !measure()) return
@@ -296,5 +325,5 @@ export function useCardLift(options: {
     if (holder === me) releaseHold()
   })
 
-  return { lifted, settling, cardStyle, listStyle, enter, leave, drop, atRest, hold }
+  return { lifted, settling, cardStyle, listStyle, enter, leave, drop, atRest, hold, keyHold }
 }

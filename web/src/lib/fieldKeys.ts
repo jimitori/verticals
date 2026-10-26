@@ -1,5 +1,7 @@
 /* The keys of the field (components/SearchBar.tsx): the field's own while it has the caret, and the board's that reach it
    from anywhere. */
+import { boardKey, boardKeyTarget, keyboardHelpOpen } from './keyboard'
+import { fieldHidden, isFieldToggle, toggleField } from './fieldHidden'
 import type { Ref } from '../reactivity'
 import { store } from '../store'
 import { commandFilter } from './commandFilter'
@@ -85,18 +87,30 @@ export function fieldKeys(field: Field) {
   function firstLetter(event: KeyboardEvent): boolean {
     if (event.metaKey || event.ctrlKey || event.altKey || event.key.length !== 1 || event.key === ' ') return false
     const target = event.target instanceof HTMLElement ? event.target : null
-    if (target?.closest('input, textarea, select, button, [contenteditable="true"], [role="dialog"], [role="menu"]')) return false
-    return !anyMenuOpen() && !store.state.drag.id && !store.state.drag.pending
+    if (event.key === '/' && boardKeyTarget(target)) return false // a goal's menu (GoalCard.tsx)
+    if (target?.closest('a, input, textarea, select, button, [contenteditable="true"], [role="dialog"], [role="menu"]')) return false
+    return !fieldHidden.value && !anyMenuOpen() && !store.state.drag.id && !store.state.drag.pending
   }
 
-  /* Any printable key on the board is the field's first letter; ⌘K opens it from anywhere (S1.P2.012, .024). */
+  /* Focused board surfaces own their keys; typing on the background starts the field. */
   function onWindowKeyDown(event: KeyboardEvent): void {
-    if (event.defaultPrevented || event.isComposing) return
+    if (keyboardHelpOpen.value) { event.stopImmediatePropagation(); return }
+    if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return
+    if (isFieldToggle(event)) {
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      if (!event.repeat) toggleField()
+      return
+    }
+    // While the field is put away nothing reaches it: not F, not ⌘K, not a letter typed on the board.
+    const focusField = () => { if (!fieldHidden.value) field.focus() }
+    if (!anyMenuOpen() && !store.state.drag.id && !store.state.drag.pending && !store.state.drag.settling
+      && boardKey(event, focusField)) return
     const command = event.metaKey || event.ctrlKey
     if (command && !event.altKey && event.key.toLowerCase() === 'k') {
       event.preventDefault()
       event.stopImmediatePropagation()
-      field.focus()
+      focusField()
       return
     }
     if (command && event.key === '.' && agentChat.running) {
