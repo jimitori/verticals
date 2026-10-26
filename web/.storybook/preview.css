@@ -1,0 +1,8 @@
+/* base.css locks the page to the app's window; a story page scrolls. */
+html,
+body {
+  height: auto;
+  overflow: auto;
+}
+:root[data-theme='light'] { color-scheme: light; }
+:root[data-theme='dark'] { color-scheme: dark; }
